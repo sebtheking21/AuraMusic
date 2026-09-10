@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aura Music — Spotify</title><style>body{margin:0;background:#000;color:#fff;font:16px system-ui;text-align:center;padding:80px 20px}a{color:#1ed760}</style></head><body><h2>Connecting Spotify…</h2><p id="msg">Please wait.</p><script>
+(async function(){
+  const REDIRECT='https://sebtheking21.github.io/AuraMusic/spotify-callback.html';
+  const p=new URLSearchParams(location.search),code=p.get('code'),state=p.get('state'),error=p.get('error');
+  const msg=document.getElementById('msg');
+  if(error){msg.textContent='Spotify authorization was cancelled.';setTimeout(()=>location.replace('./'),1200);return;}
+  const savedState=localStorage.getItem('aura_spotify_pkce_state'),verifier=localStorage.getItem('aura_spotify_pkce_verifier'),client=localStorage.getItem('aura_spotify_client_id');
+  if(!code||!state||state!==savedState||!verifier||!client){msg.textContent='Spotify connection could not be verified.';setTimeout(()=>location.replace('./'),1800);return;}
+  try{
+    const r=await fetch('https://accounts.spotify.com/api/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:client,grant_type:'authorization_code',code,redirect_uri:REDIRECT,code_verifier:verifier})});
+    const j=await r.json();
+    if(!r.ok||!j.access_token)throw new Error(j.error_description||'Token request failed');
+    localStorage.setItem('aura_spotify_access_token',j.access_token);
+    if(j.refresh_token)localStorage.setItem('aura_spotify_refresh_token',j.refresh_token);
+    localStorage.setItem('aura_spotify_token_expires',String(Date.now()+((j.expires_in||3600)-60)*1000));
+    localStorage.removeItem('aura_spotify_pkce_state');localStorage.removeItem('aura_spotify_pkce_verifier');
+    msg.textContent='Spotify connected. Returning to Aura Music…';
+    setTimeout(()=>location.replace('./'),500);
+  }catch(e){msg.textContent='Spotify connection failed: '+e.message;setTimeout(()=>location.replace('./'),2500);}
+})();
+</script></body></html>
