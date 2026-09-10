@@ -4,67 +4,38 @@ const W=window;
 const state={ctx:null,source:null,filters:[],analyser:null,gain:null,compressor:null,media:null,raf:0,modal:null,player:null,attached:new WeakSet()};
 const bands=[60,120,250,500,1000,2000,4000,8000,16000];
 const key='aura_web_eq_v1';
-const q=(s,r=document)=>r.querySelector(s);
-const qa=(s,r=document)=>[...r.querySelectorAll(s)];
-const safe=(fn)=>{try{return fn()}catch(e){return null}};
+const q=(s,r=document)=>r.querySelector(s); const qa=(s,r=document)=>[...r.querySelectorAll(s)];
+const safe=fn=>{try{return fn()}catch(e){return null}};
 function mediaCandidates(){return qa('audio,video').filter(x=>x.readyState>=0)}
-function isUsableMedia(m){return m && !m.src.startsWith('blob:')?true:true}
 function ensureAudio(m){
  if(!m||state.media===m)return;
- if(state.attached.has(m)) {state.media=m; return}
- try{
-  const AC=W.AudioContext||W.webkitAudioContext;if(!AC)return;
-  if(!state.ctx) state.ctx=new AC();
-  if(state.ctx.state==='suspended') state.ctx.resume().catch(()=>{});
-  // MediaElementAudioSourceNode can only be created once for an element.
+ if(state.attached.has(m)){state.media=m;return}
+ try{const AC=W.AudioContext||W.webkitAudioContext;if(!AC)return;if(!state.ctx)state.ctx=new AC();if(state.ctx.state==='suspended')state.ctx.resume().catch(()=>{});
   const source=state.ctx.createMediaElementSource(m);
-  const filters=bands.map((f,i)=>{const n=state.ctx.createBiquadFilter();n.type=i===0?'lowshelf':i===bands.length-1?'highshelf':'peaking';n.frequency.value=f;n.Q.value=i===0||i===bands.length-1?.707:1.05;n.gain.value=0;return n});
+  const filters=bands.map((f,i)=>{const n=state.ctx.createBiquadFilter();n.type=i===0?'lowshelf':i===bands.length-1?'highshelf':'peaking';n.frequency.value=f;n.Q.value=(i===0||i===bands.length-1)?0.707:1.05;n.gain.value=0;return n});
   const analyser=state.ctx.createAnalyser();analyser.fftSize=2048;analyser.minDecibels=-75;analyser.maxDecibels=-8;analyser.smoothingTimeConstant=.78;
-  const gain=state.ctx.createGain();gain.gain.value=1;
-  const compressor=state.ctx.createDynamicsCompressor();compressor.threshold.value=-10;compressor.knee.value=12;compressor.ratio.value=3;compressor.attack.value=.003;compressor.release.value=.18;
+  const gain=state.ctx.createGain();gain.gain.value=1;const compressor=state.ctx.createDynamicsCompressor();compressor.threshold.value=-10;compressor.knee.value=12;compressor.ratio.value=3;compressor.attack.value=.003;compressor.release.value=.18;
   let node=source;filters.forEach(f=>{node.connect(f);node=f});node.connect(analyser);analyser.connect(compressor);compressor.connect(gain);gain.connect(state.ctx.destination);
-  state.source=source;state.filters=filters;state.analyser=analyser;state.gain=gain;state.compressor=compressor;state.media=m;state.attached.add(m);
-  loadEQ();drawVisualizer();
+  state.source=source;state.filters=filters;state.analyser=analyser;state.gain=gain;state.compressor=compressor;state.media=m;state.attached.add(m);loadEQ();drawVisualizer();
  }catch(e){console.warn('Aura Web Audio unavailable:',e)}
 }
-function loadEQ(){
- let values=safe(()=>JSON.parse(localStorage.getItem(key)||'[]'))||[];
- state.filters.forEach((f,i)=>f.gain.value=Number.isFinite(values[i])?values[i]:0);
- qa('.aura-eq-band input').forEach((el,i)=>{if(state.filters[i])el.value=state.filters[i].gain.value});
-}
+function loadEQ(){const values=safe(()=>JSON.parse(localStorage.getItem(key)||'[]'))||[];state.filters.forEach((f,i)=>f.gain.value=Number.isFinite(values[i])?values[i]:0);qa('.aura-eq-band input').forEach((el,i)=>{if(state.filters[i])el.value=state.filters[i].gain.value})}
 function saveEQ(){localStorage.setItem(key,JSON.stringify(state.filters.map(f=>f.gain.value)))}
-function makeModal(){
- if(q('#aura-player-modal'))return q('#aura-player-modal');
- const modal=document.createElement('div');modal.id='aura-player-modal';
- modal.innerHTML=`<div class="aura-expanded-head"><button id="aura-close" aria-label="Close player">⌄</button><div class="aura-expanded-title">Now Playing</div><button id="aura-open-eq" aria-label="Equalizer">EQ</button></div><div class="aura-expanded-body"><div class="aura-expanded-art" id="aura-art"></div><div class="aura-expanded-meta"><div class="aura-expanded-name"><strong id="aura-name">Nothing playing</strong><span id="aura-artist">Choose a song to start listening</span></div><button class="aura-expanded-like" aria-label="Favorite">♡</button></div><div class="aura-progress"><span id="aura-cur">0:00</span><input id="aura-seek" type="range" min="0" max="1000" value="0" step="1"><span id="aura-dur">0:00</span></div><div class="aura-controls"><button class="aura-control" id="aura-shuffle">↻</button><button class="aura-control" id="aura-prev">⏮</button><button class="aura-control primary" id="aura-play">▶</button><button class="aura-control" id="aura-next">⏭</button><button class="aura-control" id="aura-repeat">↻</button></div><canvas id="aura-visualizer"></canvas><div class="aura-eq"><div class="aura-eq-head"><strong>Equalizer</strong><button class="aura-eq-reset" id="aura-eq-reset">Reset</button></div><div class="aura-eq-grid">${bands.map(f=>`<label class="aura-eq-band"><span>${f>=1000?f/1000+'k':f}</span><input type="range" min="-12" max="12" step="0.5" value="0" aria-label="${f} Hz"><span class="aura-eq-value">0 dB</span></label>`).join('')}</div></div><div class="aura-audio-note">EQ and visualizer apply to browser-playable audio. Cross-origin YouTube video frames cannot expose their audio data to a page.</div></div>`;
- document.body.appendChild(modal);state.modal=modal;
- q('#aura-close',modal).onclick=()=>closePlayer();
- q('#aura-play',modal).onclick=()=>{const m=state.media;if(!m)return;m.paused?m.play().catch(()=>{}):m.pause()};
- q('#aura-prev',modal).onclick=()=>dispatchPlayer('previous');q('#aura-next',modal).onclick=()=>dispatchPlayer('next');
- q('#aura-shuffle',modal).onclick=()=>dispatchPlayer('shuffle');q('#aura-repeat',modal).onclick=()=>dispatchPlayer('repeat');
- q('#aura-open-eq',modal).onclick=()=>q('.aura-eq',modal)?.scrollIntoView({behavior:'smooth'});
+function makeModal(){if(q('#aura-player-modal'))return q('#aura-player-modal');const modal=document.createElement('div');modal.id='aura-player-modal';
+ modal.innerHTML=`<div class="aura-expanded-head"><button id="aura-close" aria-label="Close player">⌄</button><div class="aura-expanded-title">Now Playing</div><button id="aura-open-eq" aria-label="Equalizer">EQ</button></div><div class="aura-expanded-body"><div class="aura-expanded-art" id="aura-art"></div><div class="aura-expanded-meta"><div class="aura-expanded-name"><strong id="aura-name">Nothing playing</strong><span id="aura-artist">Choose a song to start listening</span></div><button class="aura-expanded-like" aria-label="Favorite">♡</button></div><div class="aura-progress"><span id="aura-cur">0:00</span><input id="aura-seek" type="range" min="0" max="1000" value="0" step="1"><span id="aura-dur">0:00</span></div><div class="aura-controls"><button class="aura-control" id="aura-shuffle">⇄</button><button class="aura-control" id="aura-prev">⏮</button><button class="aura-control primary" id="aura-play">▶</button><button class="aura-control" id="aura-next">⏭</button><button class="aura-control" id="aura-repeat">↻</button></div><canvas id="aura-visualizer"></canvas><div class="aura-eq"><div class="aura-eq-head"><strong>Equalizer</strong><button class="aura-eq-reset" id="aura-eq-reset">Reset</button></div><div class="aura-eq-grid">${bands.map(f=>`<label class="aura-eq-band"><span>${f>=1000?f/1000+'k':f}</span><input type="range" min="-12" max="12" step="0.5" value="0" aria-label="${f} Hz"><span class="aura-eq-value">0 dB</span></label>`).join('')}</div></div><div class="aura-audio-note">EQ and visualizer apply to browser-playable audio. Cross-origin YouTube video frames cannot expose their audio data to a page.</div></div>`;
+ document.body.appendChild(modal);state.modal=modal;q('#aura-close',modal).onclick=closePlayer;q('#aura-play',modal).onclick=()=>{const m=state.media;if(!m)return;m.paused?m.play().catch(()=>{}):m.pause()};
+ q('#aura-prev',modal).onclick=()=>dispatchPlayer('previous');q('#aura-next',modal).onclick=()=>dispatchPlayer('next');q('#aura-shuffle',modal).onclick=()=>dispatchPlayer('shuffle');q('#aura-repeat',modal).onclick=()=>dispatchPlayer('repeat');q('#aura-open-eq',modal).onclick=()=>q('.aura-eq',modal)?.scrollIntoView({behavior:'smooth'});
  q('#aura-eq-reset',modal).onclick=()=>{state.filters.forEach(f=>f.gain.value=0);qa('.aura-eq-band input',modal).forEach(x=>x.value=0);qa('.aura-eq-value',modal).forEach(x=>x.textContent='0 dB');saveEQ()};
  qa('.aura-eq-band input',modal).forEach((el,i)=>el.addEventListener('input',()=>{if(state.filters[i])state.filters[i].gain.value=+el.value;const v=el.parentElement.querySelector('.aura-eq-value');if(v)v.textContent=`${(+el.value>0?'+':'')}${el.value} dB`;saveEQ()}));
- const seek=q('#aura-seek',modal);seek.addEventListener('input',()=>{if(state.media&&Number.isFinite(state.media.duration))state.media.currentTime=(+seek.value/1000)*state.media.duration});
- return modal;
-}
-function dispatchPlayer(action){
- const names={previous:['previous','prev','skipPrevious'],next:['next','skipNext'],shuffle:['shuffle'],repeat:['repeat']};
- let fired=false;
- for(const n of names[action]||[]){const el=qa(`button,[role="button"]`).find(x=>{const t=((x.getAttribute('aria-label')||'')+' '+(x.title||'')+' '+x.textContent).toLowerCase();return t.includes(n.toLowerCase())});if(el){el.click();fired=true;break}}
- if(!fired&&W.AuraPlayer&&typeof W.AuraPlayer[action]==='function')safe(()=>W.AuraPlayer[action]());
-}
-function syncModal(){if(!state.modal||!state.media)return;const m=state.media;const seek=q('#aura-seek',state.modal);const cur=q('#aura-cur',state.modal),dur=q('#aura-dur',state.modal),play=q('#aura-play',state.modal);if(Number.isFinite(m.duration)){seek.value=m.duration?Math.round(m.currentTime/m.duration*1000):0;dur.textContent=time(m.duration)}cur.textContent=time(m.currentTime);play.textContent=m.paused?'▶':'Ⅱ';const art=qa('img').find(x=>x.closest('[class*="player"],[id*="player"]'));const artBox=q('#aura-art',state.modal);if(art&&art.src&&!artBox.querySelector('img'))artBox.innerHTML=`<img src="${art.src.replace(/"/g,'&quot;')}" alt="">`;const title=qa('[class*="player"],[id*="player"]').map(x=>x.textContent.trim()).find(t=>t&&t.length<160);if(title)q('#aura-name',state.modal).textContent=title.split('\n').map(x=>x.trim()).filter(Boolean)[0]||'Now Playing'}
-function time(s){if(!Number.isFinite(s))return'0:00';return`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`}
-function drawVisualizer(){if(state.raf)cancelAnimationFrame(state.raf);const c=q('#aura-visualizer',state.modal);if(!c)return;const ctx=c.getContext('2d'),data=new Uint8Array(state.analyser?.frequencyBinCount||1024);const draw=()=>{state.raf=requestAnimationFrame(draw);const w=c.clientWidth,h=c.clientHeight,dpr=W.devicePixelRatio||1;if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!state.analyser)return;state.analyser.getByteFrequencyData(data);const n=Math.min(90,data.length),gap=2,bw=Math.max(2,(w-(n-1)*gap)/n);for(let i=0;i<n;i++){const v=data[i]/255,bar=Math.max(2,v*h*.92);const x=i*(bw+gap);const g=ctx.createLinearGradient(0,h-bar,0,h);g.addColorStop(0,'#ff375f');g.addColorStop(1,'#ff9f0a');ctx.fillStyle=g;ctx.fillRect(x,h-bar,bw,bar)}};draw()}
-function openPlayer(){const modal=makeModal();modal.classList.add('open');document.body.style.overflow='hidden';syncModal();if(state.media)ensureAudio(state.media)}
-function closePlayer(){if(state.modal)state.modal.classList.remove('open');document.body.style.overflow=''}
-function findPlayer(){
- const candidates=qa('[class],[id]').filter(el=>{const n=(el.id+' '+el.className).toLowerCase();if(!/player|now-playing|mini-player|bottom-player/.test(n))return false;const r=el.getBoundingClientRect();const s=getComputedStyle(el);return r.width>250&&r.height>45&&(s.position==='fixed'||r.bottom>innerHeight-180||r.top>innerHeight-180)});
- return candidates.sort((a,b)=>b.getBoundingClientRect().width*b.getBoundingClientRect().height-a.getBoundingClientRect().width*a.getBoundingClientRect().height)[0]||null;
-}
+ q('#aura-seek',modal).addEventListener('input',e=>{if(state.media&&Number.isFinite(state.media.duration))state.media.currentTime=(+e.target.value/1000)*state.media.duration});return modal}
+function dispatchPlayer(action){const names={previous:['previous','prev','skipprevious'],next:['next','skipnext'],shuffle:['shuffle'],repeat:['repeat']};let fired=false;for(const n of names[action]||[]){const el=qa('button,[role="button"]').find(x=>{const t=((x.getAttribute('aria-label')||'')+' '+(x.title||'')+' '+x.textContent).toLowerCase();return t.includes(n)});if(el){el.click();fired=true;break}}if(!fired&&W.AuraPlayer&&typeof W.AuraPlayer[action]==='function')safe(()=>W.AuraPlayer[action]())}
+function syncModal(){if(!state.modal||!state.media)return;const m=state.media,seek=q('#aura-seek',state.modal),cur=q('#aura-cur',state.modal),dur=q('#aura-dur',state.modal),play=q('#aura-play',state.modal);if(Number.isFinite(m.duration)){seek.value=m.duration?Math.round(m.currentTime/m.duration*1000):0;dur.textContent=time(m.duration)}cur.textContent=time(m.currentTime);play.textContent=m.paused?'▶':'Ⅱ';const art=qa('img').find(x=>x.closest('[class*="player"],[id*="player"]'));const artBox=q('#aura-art',state.modal);if(art&&art.src&&!artBox.querySelector('img'))artBox.innerHTML=`<img src="${art.src.replace(/"/g,'&quot;')}" alt="">`;const title=qa('[class*="player"],[id*="player"]').map(x=>x.textContent.trim()).find(t=>t&&t.length<160);if(title)q('#aura-name',state.modal).textContent=title.split('\n').map(x=>x.trim()).filter(Boolean)[0]||'Now Playing'}
+function time(s){return Number.isFinite(s)?`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`:'0:00'}
+function drawVisualizer(){if(state.raf)cancelAnimationFrame(state.raf);const c=q('#aura-visualizer',state.modal);if(!c)return;const ctx=c.getContext('2d'),data=new Uint8Array(state.analyser?.frequencyBinCount||1024);const draw=()=>{state.raf=requestAnimationFrame(draw);const w=c.clientWidth,h=c.clientHeight,dpr=W.devicePixelRatio||1;if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!state.analyser)return;state.analyser.getByteFrequencyData(data);const n=Math.min(90,data.length),gap=2,bw=Math.max(2,(w-(n-1)*gap)/n);for(let i=0;i<n;i++){const bar=Math.max(2,(data[i]/255)*h*.92),x=i*(bw+gap),g=ctx.createLinearGradient(0,h-bar,0,h);g.addColorStop(0,'#ff375f');g.addColorStop(1,'#ff9f0a');ctx.fillStyle=g;ctx.fillRect(x,h-bar,bw,bar)}};draw()}
+function openPlayer(){const modal=makeModal();modal.classList.add('open');document.body.style.overflow='hidden';syncModal();if(state.media)ensureAudio(state.media)}function closePlayer(){if(state.modal)state.modal.classList.remove('open');document.body.style.overflow=''}
+function findPlayer(){const candidates=qa('[class],[id]').filter(el=>{const n=(el.id+' '+el.className).toLowerCase();if(!/player|now-playing|mini-player|bottom-player/.test(n))return false;const r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>250&&r.height>45&&(s.position==='fixed'||r.bottom>innerHeight-180||r.top>innerHeight-180)});return candidates.sort((a,b)=>b.getBoundingClientRect().width*b.getBoundingClientRect().height-a.getBoundingClientRect().width*a.getBoundingClientRect().height)[0]||null}
 function installExpand(){const p=findPlayer();if(!p||p===state.player)return;if(state.player)q('#aura-expand-player',state.player)?.remove();state.player=p;p.style.position=getComputedStyle(p).position==='static'?'relative':getComputedStyle(p).position;const b=document.createElement('button');b.id='aura-expand-player';b.title='Open full player';b.setAttribute('aria-label','Open full player');b.textContent='⌃';b.onclick=e=>{e.stopPropagation();openPlayer()};p.appendChild(b)}
-function watchMedia(){mediaCandidates().forEach(m=>{m.addEventListener('play',()=>{ensureAudio(m);syncModal()});m.addEventListener('pause',syncModal);m.addEventListener('timeupdate',syncModal);m.addEventListener('loadedmetadata',syncModal)});if(!state.media){const playing=mediaCandidates().find(m=>!m.paused)||mediaCandidates()[0];if(playing)ensureAudio(playing)}}
+function watchMedia(){mediaCandidates().forEach(m=>{if(m.dataset.auraWebBound)return;m.dataset.auraWebBound='1';m.addEventListener('play',()=>{ensureAudio(m);syncModal()});m.addEventListener('pause',syncModal);m.addEventListener('timeupdate',syncModal);m.addEventListener('loadedmetadata',syncModal)});if(!state.media){const playing=mediaCandidates().find(m=>!m.paused)||mediaCandidates()[0];if(playing)ensureAudio(playing)}}
 function boot(){makeModal();installExpand();watchMedia();new MutationObserver(()=>{installExpand();watchMedia()}).observe(document.body,{childList:true,subtree:true});setInterval(()=>{installExpand();watchMedia();syncModal()},1000);document.addEventListener('dblclick',e=>{const p=findPlayer();if(p&&p.contains(e.target)&&!e.target.closest('button,input'))openPlayer()})}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
