@@ -1,0 +1,1 @@
+# Aura Music uses WebView and does not require custom ProGuard rules.
