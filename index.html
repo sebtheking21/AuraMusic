@@ -13,8 +13,8 @@
 (()=>{
  const frame=document.getElementById('aura-frame');
  function inject(){try{const d=frame.contentDocument;if(!d||!d.head)return;
-  if(!d.getElementById('aura-web-theme')){const l=d.createElement('link');l.id='aura-web-theme';l.rel='stylesheet';l.href='web-theme.css';d.head.appendChild(l)}
-  if(!d.getElementById('aura-web-enhancements')){const s=d.createElement('script');s.id='aura-web-enhancements';s.src='web-enhancements.js';s.defer=false;d.body.appendChild(s)}
+  if(!d.getElementById('aura-web-theme')){const l=d.createElement('link');l.id='aura-web-theme';l.rel='stylesheet';l.href='web-theme.css?v=2';d.head.appendChild(l)}
+  if(!d.getElementById('aura-web-enhancements')){const s=d.createElement('script');s.id='aura-web-enhancements';s.src='web-enhancements.js?v=2';s.defer=false;d.body.appendChild(s)}
   d.documentElement.style.width='100%';d.documentElement.style.maxWidth='100%';d.documentElement.style.overflowX='hidden';
  }catch(e){console.warn('Aura web enhancement injection failed',e)}}
  frame.addEventListener('load',()=>{inject();setTimeout(inject,200);setTimeout(inject,800)});window.addEventListener('resize',inject);
