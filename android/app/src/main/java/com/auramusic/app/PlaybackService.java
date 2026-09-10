@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
 
-import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
@@ -35,11 +34,9 @@ public class PlaybackService extends MediaSessionService {
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build();
-
         player = new ExoPlayer.Builder(this).build();
         player.setAudioAttributes(audioAttributes, true);
         player.setHandleAudioBecomingNoisy(true);
-
         mediaSession = new MediaSession.Builder(this, player)
                 .setSessionActivity(buildSessionActivity())
                 .build();
@@ -48,10 +45,8 @@ public class PlaybackService extends MediaSessionService {
     private PendingIntent buildSessionActivity() {
         Intent intent = new Intent(this, MainActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        return PendingIntent.getActivity(
-                this, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        return PendingIntent.getActivity(this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     @Override
@@ -59,12 +54,8 @@ public class PlaybackService extends MediaSessionService {
         if (intent != null) {
             String action = intent.getAction();
             if (ACTION_PLAY.equals(action)) {
-                playUrl(
-                        intent.getStringExtra(EXTRA_URL),
-                        intent.getStringExtra(EXTRA_TITLE),
-                        intent.getStringExtra(EXTRA_ARTIST),
-                        intent.getStringExtra(EXTRA_ART)
-                );
+                playUrl(intent.getStringExtra(EXTRA_URL), intent.getStringExtra(EXTRA_TITLE),
+                        intent.getStringExtra(EXTRA_ARTIST), intent.getStringExtra(EXTRA_ART));
             } else if (ACTION_PAUSE.equals(action)) {
                 player.pause();
             } else if (ACTION_PLAY_PAUSE.equals(action)) {
@@ -80,10 +71,9 @@ public class PlaybackService extends MediaSessionService {
 
     private void playUrl(String url, String title, String artist, String art) {
         if (url == null || url.trim().isEmpty()) return;
-        // Native background playback only accepts real network/local media URLs.
-        // Blob URLs, JavaScript URLs, and YouTube page URLs are deliberately ignored.
         String lower = url.toLowerCase();
-        if (lower.startsWith("blob:") || lower.startsWith("javascript:") || lower.contains("youtube.com/watch") || lower.contains("youtu.be/")) return;
+        if (lower.startsWith("blob:") || lower.startsWith("javascript:") ||
+                lower.contains("youtube.com/watch") || lower.contains("youtu.be/")) return;
 
         MediaMetadata.Builder metadata = new MediaMetadata.Builder();
         if (title != null) metadata.setTitle(title);
@@ -101,7 +91,6 @@ public class PlaybackService extends MediaSessionService {
         player.play();
     }
 
-    @Nullable
     @Override
     public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {
         return mediaSession;
@@ -109,7 +98,6 @@ public class PlaybackService extends MediaSessionService {
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        // Keep the Media3 session/player alive when the app task is swiped away.
         if (player != null && player.isPlaying()) return;
         super.onTaskRemoved(rootIntent);
     }
@@ -123,7 +111,6 @@ public class PlaybackService extends MediaSessionService {
         super.onDestroy();
     }
 
-    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return super.onBind(intent);
