@@ -42,7 +42,9 @@ public class MainActivity extends Activity {
         setupWebView();
         requestNotificationPermission();
         startPlaybackService();
-        webView.loadUrl(AURA_URL);
+        webView.clearCache(true);
+        webView.clearHistory();
+        webView.loadUrl(AURA_URL + "?app=" + System.currentTimeMillis());
     }
 
     private void setupWindow() {
@@ -58,7 +60,9 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         webView.setBackgroundColor(0xFF000000);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
+            // Keep the renderer alive while the Activity is backgrounded. Native Media3 playback
+            // lives in PlaybackService, so the WebView is not used as the audio engine.
+            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
         }
 
         int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
@@ -79,7 +83,7 @@ public class MainActivity extends Activity {
         settings.setLoadWithOverviewMode(false);
         settings.setUseWideViewPort(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -130,8 +134,9 @@ public class MainActivity extends Activity {
             webView = null;
             setupWebView();
             webView.clearCache(true);
+            webView.clearHistory();
             webView.loadUrl(AURA_URL + "?recovery=" + System.currentTimeMillis());
-            Toast.makeText(this, "Aura recovered from a playback error", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Aura recovered from a WebView error", Toast.LENGTH_SHORT).show();
         } finally { recoveringRenderer = false; }
     }
 
