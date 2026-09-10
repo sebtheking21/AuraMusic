@@ -21,6 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +32,7 @@ public class MainActivity extends Activity {
     private static final String AURA_URL = "https://sebtheking21.github.io/AuraMusic/";
     private static final int NOTIFICATION_REQUEST = 42;
     private static final int FILE_CHOOSER_REQUEST = 43;
+    private static final int PLAYLIST_FILE_REQUEST = 44;
     private boolean recoveringRenderer = false;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -56,7 +58,6 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         webView.setBackgroundColor(0xFF000000);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Keep the renderer important while the music UI is visible.
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
         }
 
@@ -88,7 +89,9 @@ public class MainActivity extends Activity {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = callback;
                 try {
-                    startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                    Intent picker = params.createIntent();
+                    picker.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(picker, FILE_CHOOSER_REQUEST);
                 } catch (Exception e) {
                     filePathCallback = null;
                     Toast.makeText(MainActivity.this, "Unable to open file picker", Toast.LENGTH_SHORT).show();
@@ -104,13 +107,9 @@ public class MainActivity extends Activity {
                 injectMobileUi(view);
             }
 
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return false;
-            }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return false; }
 
             @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-                // Android requires the dead WebView instance to be destroyed and replaced.
-                // Without this callback a renderer crash can terminate the whole Activity.
                 recoverFromRendererCrash(view);
                 return true;
             }
@@ -120,12 +119,8 @@ public class MainActivity extends Activity {
     private void recoverFromRendererCrash(WebView deadView) {
         if (recoveringRenderer) return;
         recoveringRenderer = true;
-
         try {
-            if (filePathCallback != null) {
-                filePathCallback.onReceiveValue(null);
-                filePathCallback = null;
-            }
+            if (filePathCallback != null) { filePathCallback.onReceiveValue(null); filePathCallback = null; }
             if (deadView != null) {
                 ViewGroup parent = deadView.getParent() instanceof ViewGroup ? (ViewGroup) deadView.getParent() : null;
                 if (parent != null) parent.removeView(deadView);
@@ -133,32 +128,31 @@ public class MainActivity extends Activity {
                 deadView.destroy();
             }
             webView = null;
-
-            // Recreate a completely new renderer instead of reusing the crashed WebView.
             setupWebView();
             webView.clearCache(true);
             webView.loadUrl(AURA_URL + "?recovery=" + System.currentTimeMillis());
             Toast.makeText(this, "Aura recovered from a playback error", Toast.LENGTH_SHORT).show();
-        } finally {
-            recoveringRenderer = false;
-        }
+        } finally { recoveringRenderer = false; }
     }
 
     private class NativeMediaBridge {
-        @JavascriptInterface public void play(String url, String title, String artist, String art) {
-            sendPlayback(PlaybackService.ACTION_PLAY, url, title, artist, art);
-        }
-        @JavascriptInterface public void pause() {
-            sendPlayback(PlaybackService.ACTION_PAUSE, null, null, null, null);
-        }
-        @JavascriptInterface public void playPause() {
-            sendPlayback(PlaybackService.ACTION_PLAY_PAUSE, null, null, null, null);
-        }
-        @JavascriptInterface public void next() {
-            sendPlayback(PlaybackService.ACTION_NEXT, null, null, null, null);
-        }
-        @JavascriptInterface public void previous() {
-            sendPlayback(PlaybackService.ACTION_PREVIOUS, null, null, null, null);
+        @JavascriptInterface public void play(String url, String title, String artist, String art) { sendPlayback(PlaybackService.ACTION_PLAY, url, title, artist, art); }
+        @JavascriptInterface public void pause() { sendPlayback(PlaybackService.ACTION_PAUSE, null, null, null, null); }
+        @JavascriptInterface public void playPause() { sendPlayback(PlaybackService.ACTION_PLAY_PAUSE, null, null, null, null); }
+        @JavascriptInterface public void next() { sendPlayback(PlaybackService.ACTION_NEXT, null, null, null, null); }
+        @JavascriptInterface public void previous() { sendPlayback(PlaybackService.ACTION_PREVIOUS, null, null, null, null); }
+        @JavascriptInterface public void pickPlaylistFile() {
+            runOnUiThread(() -> {
+                try {
+                    Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    picker.addCategory(Intent.CATEGORY_OPENABLE);
+                    picker.setType("application/json");
+                    picker.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/json", "text/plain"});
+                    startActivityForResult(picker, PLAYLIST_FILE_REQUEST);
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Unable to open playlist picker", Toast.LENGTH_SHORT).show();
+                }
+            });
         }
     }
 
@@ -183,6 +177,34 @@ public class MainActivity extends Activity {
             }
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
+            return;
+        }
+        if (requestCode == PLAYLIST_FILE_REQUEST) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null || webView == null) return;
+            Uri uri = data.getData();
+            try {
+                String json = readUriText(uri);
+                String b64 = Base64.encodeToString(json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+                String js = "window.dispatchEvent(new CustomEvent('aura-native-playlist-file',{detail:atob('" + b64 + "')}));";
+                webView.evaluateJavascript(js, null);
+            } catch (Exception e) {
+                Toast.makeText(this, "Could not read playlist file", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private String readUriText(Uri uri) throws IOException {
+        try (InputStream in = getContentResolver().openInputStream(uri); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (in == null) throw new IOException("No stream");
+            byte[] buffer = new byte[8192];
+            int n;
+            long total = 0;
+            while ((n = in.read(buffer)) != -1) {
+                total += n;
+                if (total > 10 * 1024 * 1024) throw new IOException("Playlist file is too large");
+                out.write(buffer, 0, n);
+            }
+            return out.toString(StandardCharsets.UTF_8.name());
         }
     }
 
@@ -205,49 +227,28 @@ public class MainActivity extends Activity {
             int offset = 0, read;
             while (offset < bytes.length && (read = input.read(bytes, offset, bytes.length - offset)) > 0) offset += read;
             return new String(bytes, 0, offset, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            return "";
-        }
+        } catch (IOException e) { return ""; }
     }
 
     private void injectMobileUi(WebView view) {
-        String css = readAsset("mobile.css"), js = readAsset("mobile.js"), transfer = readAsset("playlist-transfer.js"),
-                fixCss = readAsset("mobile-player-fix.css"), fixJs = readAsset("mobile-player-fix.js"),
-                nativeJs = readAsset("native-playback-bridge.js"), spotifyJs = readAsset("spotify-browser.js");
-        if (css.isEmpty() && js.isEmpty() && transfer.isEmpty() && fixCss.isEmpty() && fixJs.isEmpty() && nativeJs.isEmpty() && spotifyJs.isEmpty()) return;
-
-        String css64 = Base64.encodeToString(css.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP),
-                js64 = Base64.encodeToString(js.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP),
-                transfer64 = Base64.encodeToString(transfer.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP),
-                fixCss64 = Base64.encodeToString(fixCss.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP),
-                fixJs64 = Base64.encodeToString(fixJs.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP),
-                native64 = Base64.encodeToString(nativeJs.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP),
-                spotify64 = Base64.encodeToString(spotifyJs.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-
+        String css = readAsset("mobile.css"), js = readAsset("mobile.js"), transfer = readAsset("playlist-transfer.js"), fixCss = readAsset("mobile-player-fix.css"), fixJs = readAsset("mobile-player-fix.js"), nativeJs = readAsset("native-playback-bridge.js"), spotifyJs = readAsset("spotify-browser.js");
+        String css64 = Base64.encodeToString(css.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP), js64 = Base64.encodeToString(js.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP), transfer64 = Base64.encodeToString(transfer.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP), fixCss64 = Base64.encodeToString(fixCss.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP), fixJs64 = Base64.encodeToString(fixJs.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP), native64 = Base64.encodeToString(nativeJs.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP), spotify64 = Base64.encodeToString(spotifyJs.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
         String script = "(function(){" +
-                "var old=document.getElementById('aura-mobile-style');if(old)old.remove();var s=document.createElement('style');s.id='aura-mobile-style';s.textContent=atob('" + css64 + "');document.head.appendChild(s);" +
-                "var oldj=document.getElementById('aura-mobile-script');if(oldj)oldj.remove();var j=document.createElement('script');j.id='aura-mobile-script';j.textContent=atob('" + js64 + "');document.body.appendChild(j);" +
-                "var oldt=document.getElementById('aura-playlist-transfer-script');if(oldt)oldt.remove();var t=document.createElement('script');t.id='aura-playlist-transfer-script';t.textContent=atob('" + transfer64 + "');document.body.appendChild(t);" +
-                "var oldfc=document.getElementById('aura-player-fix-style');if(oldfc)oldfc.remove();var fc=document.createElement('style');fc.id='aura-player-fix-style';fc.textContent=atob('" + fixCss64 + "');document.head.appendChild(fc);" +
-                "var oldfj=document.getElementById('aura-player-fix-script');if(oldfj)oldfj.remove();var fj=document.createElement('script');fj.id='aura-player-fix-script';fj.textContent=atob('" + fixJs64 + "');document.body.appendChild(fj);" +
-                "var oldnp=document.getElementById('aura-native-playback-script');if(oldnp)oldnp.remove();var np=document.createElement('script');np.id='aura-native-playback-script';np.textContent=atob('" + native64 + "');document.body.appendChild(np);" +
-                "var olds=document.getElementById('aura-spotify-browser-script');if(olds)olds.remove();var sp=document.createElement('script');sp.id='aura-spotify-browser-script';sp.textContent=atob('" + spotify64 + "');document.body.appendChild(sp);})();";
+                "var old=document.getElementById('aura-mobile-style');if(old)old.remove();var s=document.createElement('style');s.id='aura-mobile-style';s.textContent=atob('"+css64+"');document.head.appendChild(s);"+
+                "var oldj=document.getElementById('aura-mobile-script');if(oldj)oldj.remove();var j=document.createElement('script');j.id='aura-mobile-script';j.textContent=atob('"+js64+"');document.body.appendChild(j);"+
+                "var oldt=document.getElementById('aura-playlist-transfer-script');if(oldt)oldt.remove();var t=document.createElement('script');t.id='aura-playlist-transfer-script';t.textContent=atob('"+transfer64+"');document.body.appendChild(t);"+
+                "var oldfc=document.getElementById('aura-player-fix-style');if(oldfc)oldfc.remove();var fc=document.createElement('style');fc.id='aura-player-fix-style';fc.textContent=atob('"+fixCss64+"');document.head.appendChild(fc);"+
+                "var oldfj=document.getElementById('aura-player-fix-script');if(oldfj)oldfj.remove();var fj=document.createElement('script');fj.id='aura-player-fix-script';fj.textContent=atob('"+fixJs64+"');document.body.appendChild(fj);"+
+                "var oldnp=document.getElementById('aura-native-playback-script');if(oldnp)oldnp.remove();var np=document.createElement('script');np.id='aura-native-playback-script';np.textContent=atob('"+native64+"');document.body.appendChild(np);"+
+                "var olds=document.getElementById('aura-spotify-browser-script');if(olds)olds.remove();var sp=document.createElement('script');sp.id='aura-spotify-browser-script';sp.textContent=atob('"+spotify64+"');document.body.appendChild(sp);})();";
         view.evaluateJavascript(script, null);
     }
 
     @Override protected void onDestroy() {
         if (filePathCallback != null) { filePathCallback.onReceiveValue(null); filePathCallback = null; }
-        if (webView != null) {
-            ViewGroup parent = webView.getParent() instanceof ViewGroup ? (ViewGroup) webView.getParent() : null;
-            if (parent != null) parent.removeView(webView);
-            webView.stopLoading();
-            webView.destroy();
-            webView = null;
-        }
+        if (webView != null) { ViewGroup parent = webView.getParent() instanceof ViewGroup ? (ViewGroup) webView.getParent() : null; if (parent != null) parent.removeView(webView); webView.stopLoading(); webView.destroy(); webView = null; }
         super.onDestroy();
     }
 
-    @Override public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
-    }
+    @Override public void onBackPressed() { if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
 }
