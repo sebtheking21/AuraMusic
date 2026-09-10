@@ -2,8 +2,11 @@ package com.auramusic.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Base64;
+import android.view.Window;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -24,8 +27,19 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        Window window = getWindow();
+        window.setStatusBarColor(0xFF090C15);
+        window.setNavigationBarColor(0xFF090C15);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            window.getDecorView().setSystemUiVisibility(0);
+        }
+
         webView = new WebView(this);
         webView.setBackgroundColor(0xFF090C15);
+        int statusBarId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        int statusBarHeight = statusBarId > 0 ? getResources().getDimensionPixelSize(statusBarId) : dp(24);
+        webView.setPadding(0, statusBarHeight, 0, 0);
+        webView.setClipToPadding(false);
         setContentView(webView);
 
         WebSettings settings = webView.getSettings();
@@ -38,6 +52,7 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(false);
         settings.setLoadWithOverviewMode(false);
         settings.setUseWideViewPort(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -56,7 +71,21 @@ public class MainActivity extends Activity {
             }
         });
 
+        startPlaybackService();
         webView.loadUrl(AURA_URL);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void startPlaybackService() {
+        Intent intent = new Intent(this, PlaybackService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
     }
 
     private String readAsset(String name) {
@@ -88,10 +117,23 @@ public class MainActivity extends Activity {
                 + "if(old) old.remove();"
                 + "document.head.appendChild(s);"
                 + "var j=document.createElement('script');"
+                + "j.id='aura-mobile-script';"
                 + "j.textContent=atob('" + js64 + "');"
+                + "var oldj=document.getElementById('aura-mobile-script');"
+                + "if(oldj) oldj.remove();"
                 + "document.body.appendChild(j);"
                 + "})();";
         view.evaluateJavascript(script, null);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.onPause();
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
     }
 
     @Override
