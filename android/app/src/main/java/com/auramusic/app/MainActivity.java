@@ -96,15 +96,18 @@ public class MainActivity extends Activity {
     }
 
     private void injectMobileUi(WebView view) {
-        String css = readAsset("mobile.css"), js = readAsset("mobile.js");
-        if (css.isEmpty() && js.isEmpty()) return;
+        String css = readAsset("mobile.css"), js = readAsset("mobile.js"), transfer = readAsset("playlist-transfer.js");
+        if (css.isEmpty() && js.isEmpty() && transfer.isEmpty()) return;
         String css64 = Base64.encodeToString(css.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
         String js64 = Base64.encodeToString(js.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+        String transfer64 = Base64.encodeToString(transfer.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
         String script = "(function(){"
                 + "var old=document.getElementById('aura-mobile-style');if(old)old.remove();"
                 + "var s=document.createElement('style');s.id='aura-mobile-style';s.textContent=atob('"+css64+"');document.head.appendChild(s);"
                 + "var oldj=document.getElementById('aura-mobile-script');if(oldj)oldj.remove();"
                 + "var j=document.createElement('script');j.id='aura-mobile-script';j.textContent=atob('"+js64+"');document.body.appendChild(j);"
+                + "var oldt=document.getElementById('aura-playlist-transfer-script');if(oldt)oldt.remove();"
+                + "var t=document.createElement('script');t.id='aura-playlist-transfer-script';t.textContent=atob('"+transfer64+"');document.body.appendChild(t);"
                 + "})();";
         view.evaluateJavascript(script, null);
     }
