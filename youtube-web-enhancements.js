@@ -1,0 +1,24 @@
+(()=>{
+'use strict';
+const W=window;
+const S={yt:null,api:false,ready:false,raf:0,mode:'yt'};
+const q=(s,r=document)=>r.querySelector(s),qa=(s,r=document)=>[...r.querySelectorAll(s)];
+function youtubeFrame(){return qa('iframe').find(f=>/youtube(?:-nocookie)?\.com|youtu\.be/.test(f.src||''))||null}
+function loadAPI(){if(W.YT&&W.YT.Player){S.api=true;init();return}if(q('#aura-yt-api'))return;const s=document.createElement('script');s.id='aura-yt-api';s.src='https://www.youtube.com/iframe_api';s.async=true;document.head.appendChild(s);const old=W.onYouTubeIframeAPIReady;W.onYouTubeIframeAPIReady=function(){if(typeof old==='function')old();S.api=true;init()}}
+function init(){const f=youtubeFrame();if(!f||!S.api)return;if(S.yt&&S.yt.getIframe&&S.yt.getIframe()===f)return;try{if(!f.id)f.id='aura-youtube-player';S.yt=new W.YT.Player(f.id,{events:{onReady:onReady,onStateChange:onState}})}catch(e){setTimeout(init,800)}}
+function onReady(){S.ready=true;patchPlayer();sync()}
+function onState(){patchPlayer();sync();drawYTVisualizer()}
+function ytDuration(){return S.yt&&S.ready?safe(()=>S.yt.getDuration())||0:0}
+function ytTime(){return S.yt&&S.ready?safe(()=>S.yt.getCurrentTime())||0:0}
+function safe(fn){try{return fn()}catch(e){return null}}
+function playing(){return S.yt&&S.ready&&safe(()=>S.yt.getPlayerState())===1}
+function dispatch(action){if(!S.yt||!S.ready)return;const p=S.yt;if(action==='play')safe(()=>p.playVideo());if(action==='pause')safe(()=>p.pauseVideo());if(action==='toggle')playing()?safe(()=>p.pauseVideo()):safe(()=>p.playVideo());if(action==='seek'){const d=ytDuration();const el=q('#aura-yt-seek');if(d&&el)safe(()=>p.seekTo((+el.value/1000)*d,true))}}
+function patchPlayer(){const m=q('#aura-player-modal');if(!m)return;const note=q('.aura-audio-note',m);if(note)note.innerHTML='<b>YouTube mode:</b> playback, seeking and the live visualizer are synced through the official YouTube IFrame API. Browser security does not expose YouTube audio samples to a page, so a true frequency EQ cannot be applied to the embedded stream.';const btn=q('#aura-play',m);if(btn&&!btn.dataset.ytBound){btn.dataset.ytBound='1';btn.onclick=e=>{e.stopPropagation();dispatch('toggle')}}const seek=q('#aura-seek',m);if(seek&&!seek.dataset.ytBound){seek.dataset.ytBound='1';seek.id='aura-yt-seek';seek.oninput=()=>dispatch('seek')}}
+function sync(){const m=q('#aura-player-modal');if(!m||!S.ready)return;const d=ytDuration(),t=ytTime(),seek=q('#aura-yt-seek',m)||q('#aura-seek',m),cur=q('#aura-cur',m),dur=q('#aura-dur',m),play=q('#aura-play',m);if(d&&seek)seek.value=Math.round(t/d*1000);if(cur)cur.textContent=fmt(t);if(dur)dur.textContent=fmt(d);if(play)play.textContent=playing()?'Ⅱ':'▶';updateYTMeta()}
+function fmt(s){return Number.isFinite(s)?`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`:'0:00'}
+function updateYTMeta(){const m=q('#aura-player-modal');if(!m)return;const title=q('.aura-expanded-name strong',m);const f=youtubeFrame();if(f&&title&&(!title.textContent||title.textContent==='Nothing playing'))title.textContent='YouTube track';}
+function drawYTVisualizer(){const c=q('#aura-visualizer');if(!c||c.dataset.ytVisual)return;c.dataset.ytVisual='1';const x=c.getContext('2d');const draw=()=>{S.raf=requestAnimationFrame(draw);const w=c.clientWidth||600,h=c.clientHeight||110,dpr=W.devicePixelRatio||1;if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);const t=ytTime(),active=playing(),n=64,gap=3,bw=(w-gap*(n-1))/n;for(let i=0;i<n;i++){const wave=Math.sin(t*5+i*.47)*.5+.5;const bass=Math.sin(t*2.1+i*.11)*.5+.5;const idle=.08;const amp=active?(idle+wave*.32+bass*.5):idle;const bar=Math.max(3,amp*h*.82);const xx=i*(bw+gap);const g=x.createLinearGradient(0,h-bar,0,h);g.addColorStop(0,'#ff375f');g.addColorStop(1,'#ff9f0a');x.fillStyle=g;x.fillRect(xx,h-bar,bw,bar)}};draw()}
+function expandOnPlayer(){const candidates=qa('[class],[id]').filter(el=>{const n=((el.id||'')+' '+(el.className||'')).toLowerCase();if(!/player|now-playing|mini-player|bottom-player/.test(n))return false;const r=el.getBoundingClientRect();return r.width>250&&r.height>45&&r.bottom>innerHeight-220});const p=candidates.sort((a,b)=>b.getBoundingClientRect().width-a.getBoundingClientRect().width)[0];if(!p)return;if(p.dataset.auraYTExpand)return;p.dataset.auraYTExpand='1';p.addEventListener('click',e=>{if(e.target.closest('button,input,a,select,textarea'))return;const modal=q('#aura-player-modal');if(modal){modal.classList.add('open');document.body.style.overflow='hidden';patchPlayer();sync();drawYTVisualizer()}});}
+function boot(){loadAPI();expandOnPlayer();setInterval(()=>{loadAPI();expandOnPlayer();patchPlayer();sync()},700);drawYTVisualizer()}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+})();
