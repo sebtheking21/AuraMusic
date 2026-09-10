@@ -9,8 +9,6 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
 
-import androidx.annotation.Nullable;
-
 public class PlaybackService extends Service {
     private static final String CHANNEL_ID = "aura_music_playback";
     private static final int NOTIFICATION_ID = 1001;
@@ -72,7 +70,6 @@ public class PlaybackService extends Service {
         super.onDestroy();
     }
 
-    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
